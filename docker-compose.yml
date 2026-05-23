@@ -8,7 +8,7 @@ services:
       POSTGRES_DB: sso
     volumes:
       - sso-pg-data:/var/lib/postgresql/data
-    # Снаружи порт не выставляем — sso ходит во внутренней docker-сети.
+    # Снаружи порт не выставлен — sso ходит во внутренней docker-сети.
     # Для отладки: docker exec -it sso-postgres psql -U sso -d sso
     # Если хочется наружу — добавьте сюда `ports: ["5433:5432"]`.
     healthcheck:
@@ -25,12 +25,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     environment:
       SSO_ENV: local
       SSO_DB_DSN: postgres://sso:sso@postgres:5432/sso?sslmode=disable
       SSO_GRPC_PORT: 44044
       SSO_ACCESS_TTL: 15m
       SSO_REFRESH_TTL: 720h
+      SSO_OTEL_ENABLED: "true"
+      SSO_OTEL_ENDPOINT: otel-collector:4317
+      SSO_OTEL_SERVICE_NAME: sso
+      SSO_OTEL_SERVICE_VERSION: dev
     ports:
       - "44044:44044"
 
@@ -57,5 +63,67 @@ services:
         echo "seeded demo app (id=1)"
     restart: "no"
 
+  # ---------------- observability ----------------
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ./deploy/otel-collector.yaml:/etc/otel-collector.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP/gRPC снаружи — удобно слать трейсы из других сервисов
+      - "8889:8889"   # Prometheus scrape endpoint
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=1h
+    volumes:
+      - ./deploy/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  tempo:
+    image: grafana/tempo:2.6.0
+    container_name: tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./deploy/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+
+  loki:
+    image: grafana/loki:3.2.0
+    container_name: loki
+    command: ["-config.file=/etc/loki.yaml"]
+    volumes:
+      - ./deploy/loki.yaml:/etc/loki.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: grafana
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    volumes:
+      - ./deploy/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+    ports:
+      - "3000:3000"
+
 volumes:
   sso-pg-data:
+  tempo-data:
+  loki-data:

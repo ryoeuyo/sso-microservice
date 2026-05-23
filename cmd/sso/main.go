@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	bcryptadapter "github.com/ryoeuyo/sso-microservice/internal/adapters/crypto/bcrypt"
 	grpcadapter "github.com/ryoeuyo/sso-microservice/internal/adapters/grpc"
@@ -19,6 +20,7 @@ import (
 	"github.com/ryoeuyo/sso-microservice/internal/app/permissions"
 	"github.com/ryoeuyo/sso-microservice/internal/app/users"
 	"github.com/ryoeuyo/sso-microservice/internal/config"
+	"github.com/ryoeuyo/sso-microservice/internal/observability"
 )
 
 func main() {
@@ -30,13 +32,40 @@ func main() {
 
 func run() error {
 	cfg := config.MustLoad()
-	log := newLogger(cfg.Env)
-	log.Info("config loaded", slog.String("env", cfg.Env))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Storage: pgxpool + автоприменение goose-миграций.
+	// Observability: TracerProvider + MeterProvider + LoggerProvider.
+	// Логгер ниже будет писать одновременно в stdout и в OTel (если enabled).
+	var (
+		otelShutdown observability.Shutdown
+		log          *slog.Logger
+	)
+	if cfg.OTel.Enabled {
+		sh, err := observability.Setup(ctx, observability.Config{
+			Endpoint:       cfg.OTel.Endpoint,
+			ServiceName:    cfg.OTel.ServiceName,
+			ServiceVersion: cfg.OTel.ServiceVersion,
+		})
+		if err != nil {
+			return fmt.Errorf("observability: %w", err)
+		}
+		otelShutdown = sh
+		log = observability.NewLogger(cfg.OTel.ServiceName, loggerLevel(cfg.Env))
+	} else {
+		format := "text"
+		if cfg.Env == "prod" {
+			format = "json"
+		}
+		log = observability.NewStdoutLogger(loggerLevel(cfg.Env), format)
+	}
+
+	log.Info("config loaded",
+		slog.String("env", cfg.Env),
+		slog.Bool("otel_enabled", cfg.OTel.Enabled),
+	)
+
 	storage, err := pgstorage.New(ctx, cfg.DB.DSN)
 	if err != nil {
 		return fmt.Errorf("storage init: %w", err)
@@ -92,30 +121,28 @@ func run() error {
 		}
 	}
 
-	// Graceful shutdown: даёт активным RPC доработать.
 	stopped := make(chan struct{})
 	go func() {
 		srv.GracefulStop()
 		close(stopped)
 	}()
+	<-stopped
+	log.Info("grpc stopped gracefully")
 
-	select {
-	case <-stopped:
-		log.Info("grpc stopped gracefully")
-	case <-context.Background().Done():
-		// недостижимо, но защищает от хвостов
+	if otelShutdown != nil {
+		shCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := otelShutdown(shCtx); err != nil {
+			log.Warn("otel shutdown", slog.Any("err", err))
+		}
 	}
 
 	return nil
 }
 
-func newLogger(env string) *slog.Logger {
-	var h slog.Handler
-	switch env {
-	case "prod":
-		h = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})
-	default:
-		h = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
+func loggerLevel(env string) slog.Level {
+	if env == "prod" {
+		return slog.LevelInfo
 	}
-	return slog.New(h)
+	return slog.LevelDebug
 }
