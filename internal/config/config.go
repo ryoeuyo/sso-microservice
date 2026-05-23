@@ -17,6 +17,14 @@ type Config struct {
 	GRPC   GRPC   `yaml:"grpc"`
 	DB     DB     `yaml:"db"`
 	Tokens Tokens `yaml:"tokens"`
+	OTel   OTel   `yaml:"otel"`
+}
+
+type OTel struct {
+	Enabled        bool   `yaml:"enabled"         env:"SSO_OTEL_ENABLED"         env-default:"false"`
+	Endpoint       string `yaml:"endpoint"        env:"SSO_OTEL_ENDPOINT"        env-default:"otel-collector:4317"`
+	ServiceName    string `yaml:"service_name"    env:"SSO_OTEL_SERVICE_NAME"    env-default:"sso"`
+	ServiceVersion string `yaml:"service_version" env:"SSO_OTEL_SERVICE_VERSION" env-default:"dev"`
 }
 
 type GRPC struct {
@@ -44,9 +52,9 @@ func MustLoad() *Config {
 }
 
 // Load — путь к YAML берётся (в порядке убывания приоритета):
-//   1. флаг --config;
-//   2. env CONFIG_PATH;
-//   3. ./config/local.yaml.
+//  1. флаг --config;
+//  2. env CONFIG_PATH;
+//  3. ./config/local.yaml.
 //
 // Если файла нет — это не ошибка, конфиг можно собрать только из env
 // (тогда SSO_DB_DSN обязателен).

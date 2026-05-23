@@ -27,7 +27,15 @@ func UnaryLogging(log *slog.Logger) grpc.UnaryServerInterceptor {
 			attrs = append(attrs, slog.String("err", st.Message()))
 		}
 
-		log.Info("grpc call", attrs...)
+		// LogAttrs с ctx — чтобы otelslog-bridge подтянул trace_id/span_id
+		// из активного span'а и положил в OTel-лог. Без ctx корреляции с трейсами не будет.
+		slogAttrs := make([]slog.Attr, 0, len(attrs))
+		for _, a := range attrs {
+			if attr, ok := a.(slog.Attr); ok {
+				slogAttrs = append(slogAttrs, attr)
+			}
+		}
+		log.LogAttrs(ctx, slog.LevelInfo, "grpc call", slogAttrs...)
 		return resp, err
 	}
 }

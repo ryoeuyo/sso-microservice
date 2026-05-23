@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"buf.build/go/protovalidate"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
@@ -36,7 +37,11 @@ func NewServer(d Deps) (*grpc.Server, error) {
 		return nil, fmt.Errorf("protovalidate.New: %w", err)
 	}
 
+	// otelgrpc StatsHandler автоматически создаёт span на каждый RPC
+	// и публикует RPC-метрики (rpc.server.duration и т.д.) в MeterProvider.
+	// Если OTel не инициализирован — handler без-операционен.
 	s := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(
 			interceptors.UnaryRecovery(d.Log),
 			interceptors.UnaryLogging(d.Log),
