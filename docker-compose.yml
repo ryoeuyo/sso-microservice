@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sso-postgres
+    environment:
+      POSTGRES_USER: sso
+      POSTGRES_PASSWORD: sso
+      POSTGRES_DB: sso
+    volumes:
+      - sso-pg-data:/var/lib/postgresql/data
+    # Снаружи порт не выставляем — sso ходит во внутренней docker-сети.
+    # Для отладки: docker exec -it sso-postgres psql -U sso -d sso
+    # Если хочется наружу — добавьте сюда `ports: ["5433:5432"]`.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sso -d sso"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  sso:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sso
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SSO_ENV: local
+      SSO_DB_DSN: postgres://sso:sso@postgres:5432/sso?sslmode=disable
+      SSO_GRPC_PORT: 44044
+      SSO_ACCESS_TTL: 15m
+      SSO_REFRESH_TTL: 720h
+    ports:
+      - "44044:44044"
+
+  # Одноразовый сидер: ждёт пока sso прогонит миграции (появится таблица apps),
+  # потом вставляет demo-приложение. Без него Login/Validate работать не будут.
+  sso-seed:
+    image: postgres:16-alpine
+    container_name: sso-seed
+    depends_on:
+      sso:
+        condition: service_started
+    environment:
+      PGPASSWORD: sso
+    entrypoint:
+      - sh
+      - -c
+      - |
+        until psql -h postgres -U sso -d sso -c 'SELECT 1 FROM apps LIMIT 0' >/dev/null 2>&1; do
+          echo "waiting for sso migrations..."
+          sleep 1
+        done
+        psql -h postgres -U sso -d sso \
+          -c "INSERT INTO apps (id, name, secret) VALUES (1, 'demo', 'replace-me-with-strong-secret') ON CONFLICT DO NOTHING"
+        echo "seeded demo app (id=1)"
+    restart: "no"
+
+volumes:
+  sso-pg-data:

@@ -1,12 +1,17 @@
 version: v2
 managed:
   enabled: true
+  disable:
+    # validate.proto должна импортироваться из BSR Go-модуля,
+    # иначе с protovalidate-go получаем конфликт регистрации дескриптора.
+    - file_option: go_package_prefix
+      path: buf/validate/validate.proto
   override:
     - file_option: go_package_prefix
       value: github.com/ryoeuyo/sso-microservice/gen
 inputs:
+  # third_party больше не входит в инпут — validate.pb.go не генерим локально.
   - directory: api/proto
-  - directory: third_party
 plugins:
   - local: protoc-gen-go
     out: gen

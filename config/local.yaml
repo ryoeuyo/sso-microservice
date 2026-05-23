@@ -1,0 +1,12 @@
+env: local
+
+grpc:
+  port: 44044
+  timeout: 10s
+
+db:
+  dsn: "postgres://sso:sso@localhost:5432/sso?sslmode=disable"
+
+tokens:
+  access_ttl: 15m
+  refresh_ttl: 720h   # 30 дней

@@ -86,15 +86,42 @@ tasks:
       - golangci-lint run ./...
 
   test:
-    desc: Юнит-тесты
+    desc: Юнит-тесты (без integration-тегов)
     cmds:
       - go test ./... -race -count=1
+
+  test:integration:
+    desc: Интеграционные тесты (поднимают Postgres в Docker, тег integration)
+    cmds:
+      - go test ./... -race -count=1 -tags=integration
 
   test:cover:
     desc: Тесты с покрытием
     cmds:
       - go test ./... -race -count=1 -coverprofile=coverage.out
       - go tool cover -func=coverage.out
+
+  # ---------- docker-compose ----------
+
+  compose:up:
+    desc: Поднять postgres + sso + seed демо-приложения
+    cmds:
+      - docker compose up -d --build
+
+  compose:logs:
+    desc: Логи sso в follow-режиме
+    cmds:
+      - docker compose logs -f sso
+
+  compose:down:
+    desc: Остановить и удалить контейнеры (volume с БД сохраняется)
+    cmds:
+      - docker compose down
+
+  compose:nuke:
+    desc: Снести всё включая volume с данными
+    cmds:
+      - docker compose down -v
 
   # ---------- инструменты ----------
 

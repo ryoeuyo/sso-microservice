@@ -1,0 +1,17 @@
+.git
+.gitignore
+.github
+.idea
+.vscode
+.DS_Store
+
+bin/
+coverage.out
+*.test
+*.out
+
+# documentation is not needed in image
+docs/
+
+# local-only
+.env
