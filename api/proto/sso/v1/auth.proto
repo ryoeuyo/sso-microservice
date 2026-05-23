@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package sso.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// AuthService — сервис аутентификации.
+// Register / Login / Refresh / Logout / Validate.
+service AuthService {
+  // Регистрация нового пользователя.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // Логин по email/паролю в рамках конкретного приложения (app_id).
+  // Возвращает пару access + refresh токенов.
+  rpc Login(LoginRequest) returns (LoginResponse);
+
+  // Ротация refresh-токена. Старый refresh инвалидируется.
+  rpc Refresh(RefreshRequest) returns (RefreshResponse);
+
+  // Logout — инвалидация переданного refresh-токена (выход с одного устройства).
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+
+  // Validate — проверка access-токена. Используется другими сервисами
+  // как лёгкая интроспекция: возвращает user_id, app_id, роли и exp.
+  rpc Validate(ValidateRequest) returns (ValidateResponse);
+}
+
+// ---------- Общие типы ----------
+
+message TokenPair {
+  string access_token = 1;
+  string refresh_token = 2;
+  google.protobuf.Timestamp access_expires_at = 3;
+  google.protobuf.Timestamp refresh_expires_at = 4;
+}
+
+// ---------- Register ----------
+
+message RegisterRequest {
+  string email = 1 [(buf.validate.field).string.email = true];
+
+  // Минимум 8 символов, максимум 72 (ограничение bcrypt).
+  string password = 2 [(buf.validate.field).string = {
+    min_len: 8,
+    max_len: 72
+  }];
+}
+
+message RegisterResponse {
+  string user_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+// ---------- Login ----------
+
+message LoginRequest {
+  string email = 1 [(buf.validate.field).string.email = true];
+
+  string password = 2 [(buf.validate.field).string = {
+    min_len: 8,
+    max_len: 72
+  }];
+
+  // Идентификатор приложения, в которое логинится пользователь.
+  // На основе app_id выбирается секрет для подписи JWT.
+  int32 app_id = 3 [(buf.validate.field).int32.gt = 0];
+}
+
+message LoginResponse {
+  TokenPair tokens = 1;
+}
+
+// ---------- Refresh ----------
+
+message RefreshRequest {
+  string refresh_token = 1 [(buf.validate.field).string.min_len = 1];
+  int32 app_id = 2 [(buf.validate.field).int32.gt = 0];
+}
+
+message RefreshResponse {
+  TokenPair tokens = 1;
+}
+
+// ---------- Logout ----------
+
+message LogoutRequest {
+  string refresh_token = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message LogoutResponse {}
+
+// ---------- Validate ----------
+
+message ValidateRequest {
+  string access_token = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message ValidateResponse {
+  string user_id = 1;
+  int32 app_id = 2;
+  repeated string roles = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}

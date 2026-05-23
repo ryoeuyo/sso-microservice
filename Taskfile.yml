@@ -1,0 +1,105 @@
+version: '3'
+
+vars:
+  BIN_NAME: sso
+  CMD_PATH: ./cmd/sso
+  GEN_DIR: ./gen
+  PROTO_DIR: ./api/proto
+
+env:
+  PATH:
+    sh: echo "$(go env GOPATH)/bin:$PATH"
+
+tasks:
+  default:
+    desc: Список доступных задач
+    cmds:
+      - task --list
+
+  # ---------- buf / proto ----------
+
+  proto:tools:
+    desc: Поставить локальные protoc-плагины и mockgen
+    cmds:
+      - go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+      - go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+      - go install go.uber.org/mock/mockgen@latest
+
+  mocks:
+    desc: Перегенерировать моки доменных портов
+    cmds:
+      - rm -rf internal/mocks
+      - mkdir -p internal/mocks/usermock internal/mocks/appmock internal/mocks/tokenmock
+      - mockgen -source=internal/domain/user/repository.go  -destination=internal/mocks/usermock/repository.go  -package=usermock
+      - mockgen -source=internal/domain/user/hasher.go      -destination=internal/mocks/usermock/hasher.go      -package=usermock
+      - mockgen -source=internal/domain/app/repository.go   -destination=internal/mocks/appmock/repository.go   -package=appmock
+      - mockgen -source=internal/domain/token/repository.go -destination=internal/mocks/tokenmock/repository.go -package=tokenmock
+      - mockgen -source=internal/domain/token/issuer.go     -destination=internal/mocks/tokenmock/issuer.go     -package=tokenmock
+
+  buf:lint:
+    desc: Линт .proto файлов
+    cmds:
+      - buf lint
+
+  buf:breaking:
+    desc: Проверка обратной совместимости API относительно main
+    cmds:
+      - buf breaking --against '.git#branch=main'
+
+  gen:
+    desc: Сгенерировать Go-код из .proto
+    cmds:
+      - buf generate
+
+  gen:clean:
+    desc: Удалить сгенерированный код
+    cmds:
+      - rm -rf {{.GEN_DIR}}
+
+  # ---------- сборка / запуск ----------
+
+  build:
+    desc: Сборка бинаря
+    cmds:
+      - go build -o ./bin/{{.BIN_NAME}} {{.CMD_PATH}}
+
+  run:
+    desc: Запустить сервис локально
+    cmds:
+      - go run {{.CMD_PATH}}
+
+  # ---------- качество ----------
+
+  tidy:
+    desc: go mod tidy
+    cmds:
+      - go mod tidy
+
+  fmt:
+    desc: gofmt по всему проекту
+    cmds:
+      - gofmt -w .
+
+  lint:
+    desc: golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  test:
+    desc: Юнит-тесты
+    cmds:
+      - go test ./... -race -count=1
+
+  test:cover:
+    desc: Тесты с покрытием
+    cmds:
+      - go test ./... -race -count=1 -coverprofile=coverage.out
+      - go tool cover -func=coverage.out
+
+  # ---------- инструменты ----------
+
+  tools:install:
+    desc: Поставить buf и task (через brew)
+    cmds:
+      - brew install bufbuild/buf/buf
+      - brew install go-task

@@ -1,0 +1,17 @@
+version: v2
+modules:
+  - path: api/proto
+    lint:
+      use:
+        - STANDARD
+      except:
+        - PACKAGE_VERSION_SUFFIX
+    breaking:
+      use:
+        - FILE
+  - path: third_party
+    lint:
+      use:
+        - BASIC
+      ignore:
+        - third_party
